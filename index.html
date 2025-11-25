@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="th">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>POS Backoffice - Dashboard</title>
+    <!-- โหลด styles จากไฟล์ local -->
+    <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+    <div id="app">
+        <!-- Navbar -->
+        <nav class="navbar">
+            <div class="brand">POS Backoffice</div>
+            <ul class="nav-links">
+                <li><button data-page="dashboard" class="nav-btn active">Dashboard</button></li>
+                <li><button data-page="stock-in" class="nav-btn">Stock In</button></li>
+                <li><button data-page="stock-transfer" class="nav-btn">Stock Transfer</button></li>
+                <li><button data-page="reports" class="nav-btn">Reports</button></li>
+            </ul>
+        </nav>
+
+        <!-- Content -->
+        <main class="container">
+            <!-- Dashboard -->
+            <section id="dashboard" class="page">
+                <h2>Dashboard</h2>
+                <div class="cards">
+                    <div class="card">
+                        <h3>Total Sales</h3>
+                        <div id="total-sales" class="big-number">--</div>
+                    </div>
+                    <div class="card">
+                        <h3>Stock Alerts</h3>
+                        <ul id="stock-alerts" class="alert-list">
+                            <li>Loading...</li>
+                        </ul>
+                    </div>
+                    <div class="card">
+                        <h3>Top Products (Product Mix)</h3>
+                        <ol id="product-mix">
+                            <li>Loading...</li>
+                        </ol>
+                    </div>
+                    <div class="card">
+                        <h3>Sales by Branch</h3>
+                        <ul id="branch-sales">
+                            <li>Loading...</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stock In -->
+            <section id="stock-in" class="page hidden">
+                <h2>Stock In</h2>
+                <form id="stock-in-form" class="form-card">
+                    <div class="form-row">
+                        <label>Supplier
+                            <select id="supplier-select" required></select>
+                        </label>
+                        <label>Branch
+                            <select id="branch-select" required></select>
+                        </label>
+                    </div>
+
+                    <div id="stock-in-items">
+                        <!-- dynamic item rows -->
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" id="add-stock-item" class="btn">Add Item</button>
+                        <button type="submit" class="btn primary">Submit</button>
+                        <button type="reset" class="btn outline">Reset</button>
+                    </div>
+
+                    <div id="stock-in-message" class="message"></div>
+                </form>
+            </section>
+
+            <!-- Stock Transfer -->
+            <section id="stock-transfer" class="page hidden">
+                <h2>Stock Transfer</h2>
+                <form id="stock-transfer-form" class="form-card">
+                    <div class="form-row">
+                        <label>From Branch
+                            <select id="from-branch-select" required></select>
+                        </label>
+                        <label>To Branch
+                            <select id="to-branch-select" required></select>
+                        </label>
+                    </div>
+
+                    <div id="transfer-items">
+                        <!-- dynamic item rows -->
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" id="add-transfer-item" class="btn">Add Item</button>
+                        <button type="submit" class="btn primary">Submit</button>
+                        <button type="reset" class="btn outline">Reset</button>
+                    </div>
+
+                    <div id="stock-transfer-message" class="message"></div>
+                </form>
+            </section>
+
+            <!-- Reports -->
+            <section id="reports" class="page hidden">
+                <h2>Reports</h2>
+
+                <div class="report-controls">
+                    <label>Search Menu:
+                        <input id="reports-search" type="search" placeholder="Search menu name..." />
+                    </label>
+                    <label>From:
+                        <input id="reports-from" type="date" />
+                    </label>
+                    <label>To:
+                        <input id="reports-to" type="date" />
+                    </label>
+                    <button id="reports-refresh" class="btn">Refresh</button>
+                </div>
+
+                <div class="table-wrapper">
+                    <table id="reports-table">
+                        <thead>
+                            <tr>
+                                <th data-key="menu_name" class="sortable">Menu Name</th>
+                                <th data-key="quantity" class="sortable">Quantity Sold</th>
+                                <th data-key="revenue" class="sortable">Revenue</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td colspan="3">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3>Product Mix (Top selling menus)</h3>
+                <ol id="report-product-mix"></ol>
+            </section>
+        </main>
+    </div>
+    <!-- เพิ่มส่วนนี้ก่อนปิด </body> (ไว้ในไฟล์ index.html) -->
+    <!-- Modal: Add Supplier -->
+    <div id="modal-add-supplier" class="modal hidden" aria-hidden="true">
+        <div class="modal-backdrop" id="modal-backdrop"></div>
+        <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-add-supplier-title">
+            <h3 id="modal-add-supplier-title">เพิ่ม Supplier ใหม่</h3>
+            <form id="form-add-supplier">
+                <label>
+                    ชื่อ Supplier
+                    <input id="input-new-supplier-name" type="text" required placeholder="เช่น บริษัท เอ จำกัด" />
+                </label>
+                <div class="modal-actions">
+                    <button type="button" id="btn-cancel-add-supplier" class="btn outline">ยกเลิก</button>
+                    <button type="submit" class="btn primary">เพิ่ม</button>
+                </div>
+                <div id="add-supplier-msg" class="message"></div>
+            </form>
+        </div>
+    </div>
+    <!-- สิ้นสุด modal -->
+
+    <!-- โหลดเป็น ES module (สำคัญ: ต้องเป็น 'type="module"') -->
+    <script type="module" src="./app.js"></script>
+</body>
+
+</html>
