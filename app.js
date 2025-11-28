@@ -560,26 +560,18 @@ stockInForm?.addEventListener('submit', async (ev) => {
 });
 
 /* ===========================
-   Stock Transfer helpers & submit (FIXED VERSION)
+   Stock Transfer helpers & submit (FIXED)
    =========================== */
 
 /**
  * Create a stock_transfer header row.
+ * Uses correct column names: from_branch_id , to_branch_id , date
  */
 async function createStockTransferHeader(payload) {
   try {
-    const user = supabase.auth.getUser ? (await supabase.auth.getUser()).data.user : null;
-    const userId = user?.id || null;
-
-    // inject created_by for RLS
-    const finalPayload = {
-      ...payload,
-      created_by: userId
-    };
-
     const res = await supabase
-      .from('stock_transfer')
-      .insert(finalPayload)
+      .from("stock_transfer")
+      .insert(payload)
       .select()
       .limit(1)
       .single();
@@ -587,110 +579,101 @@ async function createStockTransferHeader(payload) {
     if (res.error) throw res.error;
     return res.data;
   } catch (err) {
-    console.error('createStockTransferHeader error', err);
+    console.error("createStockTransferHeader error", err);
     throw err;
   }
 }
 
 /**
- * Insert items for a given transfer.
- * Ensures created_by exists for RLS.
+ * Insert items for transfer
  */
 async function insertStockTransferItems(transferId, items) {
-  const user = supabase.auth.getUser ? (await supabase.auth.getUser()).data.user : null;
-  const userId = user?.id || null;
-
-  // Standard column name (use ONLY ONE to avoid RLS rejects)
-  const payload = items.map(i => ({
+  const payload = items.map((i) => ({
     stock_transfer_id: transferId,
     ingredient_id: i.ingredient_id,
-    qty: i.quantity,
-    unit: i.unit,
-    created_by: userId
+    quantity: i.quantity,
+    unit: i.unit
   }));
 
-  const r = await supabase.from('stock_transfer_item').insert(payload);
-  if (r.error) throw r.error;
-
-  return r.data;
+  const res = await supabase.from("stock_transfer_item").insert(payload);
+  if (res.error) throw res.error;
+  return res.data;
 }
 
-stockTransferForm?.addEventListener('submit', async (ev) => {
+/**
+ * Submit stock transfer
+ */
+stockTransferForm?.addEventListener("submit", async (ev) => {
   ev.preventDefault();
-  if (!stockTransferMessage) return;
-  stockTransferMessage.textContent = ''; 
-  stockTransferMessage.className = 'message';
+  stockTransferMessage.textContent = "";
+  stockTransferMessage.className = "message";
 
   const fromBranch = fromBranchSelect?.value;
   const toBranch = toBranchSelect?.value;
 
   if (!fromBranch || !toBranch || fromBranch === toBranch) {
-    stockTransferMessage.textContent = 'Please select different From and To branches.';
-    stockTransferMessage.classList.add('error');
+    stockTransferMessage.textContent =
+      "Please select different From and To branches.";
+    stockTransferMessage.classList.add("error");
     return;
   }
 
-  const rows = Array.from(transferItemsContainer.querySelectorAll('.form-row'));
-  const items = [];
+  // collect items
+  const rows = Array.from(
+    transferItemsContainer.querySelectorAll(".form-row")
+  );
 
+  const items = [];
   for (const row of rows) {
-    const ing = row.querySelector('.ingredient-select').value;
-    const qty = parseFloat(row.querySelector('.qty-input').value);
-    const unit = row.querySelector('.unit-input').value.trim();
+    const ing = row.querySelector(".ingredient-select").value;
+    const qty = parseFloat(row.querySelector(".qty-input").value);
+    const unit = row.querySelector(".unit-input").value.trim();
 
     if (!ing || !qty || qty <= 0 || !unit) {
-      stockTransferMessage.textContent = 'Please fill all item fields with valid values.';
-      stockTransferMessage.classList.add('error');
+      stockTransferMessage.textContent =
+        "Please fill all item fields with valid values.";
+      stockTransferMessage.classList.add("error");
       return;
     }
-    items.push({ ingredient_id: ing, quantity: qty, unit });
+
+    items.push({
+      ingredient_id: ing,
+      quantity: qty,
+      unit: unit
+    });
   }
 
   try {
-    // Header payload
+    // FIXED: correct payload
     const headerPayload = {
-      from_branch: fromBranch,
-      to_branch: toBranch,
+      from_branch_id: fromBranch,
+      to_branch_id: toBranch,
       date: new Date().toISOString()
     };
 
-    const headerRes = await createStockTransferHeader(headerPayload);
-    if (!headerRes?.id) throw new Error('Transfer header insert failed');
+    const header = await createStockTransferHeader(headerPayload);
+    if (!header?.id) throw new Error("Transfer header insert failed");
 
-    const transferId = headerRes.id;
+    await insertStockTransferItems(header.id, items);
 
-    // Insert items
-    await insertStockTransferItems(transferId, items);
-
-    stockTransferMessage.textContent = 'Stock Transfer recorded successfully.';
-    stockTransferMessage.classList.add('success');
+    stockTransferMessage.textContent =
+      "Stock Transfer recorded successfully.";
+    stockTransferMessage.classList.add("success");
 
     stockTransferForm.reset();
-    transferItemsContainer.innerHTML = '';
+    transferItemsContainer.innerHTML = "";
     createItemRow(transferItemsContainer);
 
     await loadDashboardAndReports();
-
   } catch (err) {
-    console.error('stock transfer error', err);
-
-    const em = err?.message || JSON.stringify(err);
-
-    if (
-      err?.code === '42501' ||
-      em.toLowerCase().includes('permission') ||
-      em.toLowerCase().includes('rls') ||
-      em.toLowerCase().includes('forbidden')
-    ) {
-      stockTransferMessage.textContent =
-        'Permission denied (RLS). Your JS now sends created_by automatically. If error persists, check RLS: allow insert where created_by = auth.uid().';
-    } else {
-      stockTransferMessage.textContent = 'Error saving stock transfer: ' + em;
-    }
-
-    stockTransferMessage.classList.add('error');
+    console.error("stock transfer error", err);
+    stockTransferMessage.textContent =
+      "Error saving stock transfer: " +
+      (err.message || JSON.stringify(err));
+    stockTransferMessage.classList.add("error");
   }
 });
+
 
 
 /* ===========================
@@ -819,4 +802,5 @@ function parseCurrency(s) {
   await loadDashboardAndReports();
   setupRealtime();
 })();
+
 
