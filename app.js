@@ -560,8 +560,46 @@ stockInForm?.addEventListener('submit', async (ev) => {
 });
 
 /* ===========================
-   Stock Transfer submit handler
+   Stock Transfer helpers & submit
    =========================== */
+
+/**
+ * Create a stock_transfer header row.
+ * Uses column names: from_branch (text), to_branch (text), date (timestamp)
+ * Adjust as needed if your table uses different column names.
+ */
+async function createStockTransferHeader(payload) {
+  try {
+    const res = await supabase.from('stock_transfer').insert(payload).select().limit(1).single();
+    if (res.error) throw res.error;
+    return res.data;
+  } catch (err) {
+    console.error('createStockTransferHeader error', err);
+    throw err;
+  }
+}
+
+/**
+ * Insert items for a given transfer.
+ * Assumes stock_transfer_item has transfer_id (or stock_transfer_id) referencing stock_transfer.id
+ * and fields: ingredient_id, qty (or quantity), unit (if you have)
+ */
+async function insertStockTransferItems(transferId, items) {
+  // try to guess the column name: some schemas use transfer_id, some use stock_transfer_id
+  const payloadByTransferId = items.map(i => ({ transfer_id: transferId, ingredient_id: i.ingredient_id, qty: i.quantity }));
+  const payloadByStockTransferId = items.map(i => ({ stock_transfer_id: transferId, ingredient_id: i.ingredient_id, qty: i.quantity }));
+
+  // Try insert with transfer_id first, if that fails try stock_transfer_id
+  let r = await supabase.from('stock_transfer_item').insert(payloadByTransferId);
+  if (!r.error) return r.data;
+  console.warn('stock_transfer_item insert with transfer_id failed, trying stock_transfer_id', r.error);
+
+  r = await supabase.from('stock_transfer_item').insert(payloadByStockTransferId);
+  if (!r.error) return r.data;
+
+  throw r.error || new Error('Unknown error inserting transfer items');
+}
+
 stockTransferForm?.addEventListener('submit', async (ev) => {
   ev.preventDefault();
   if (!stockTransferMessage) return;
@@ -590,33 +628,34 @@ stockTransferForm?.addEventListener('submit', async (ev) => {
   }
 
   try {
-    const { data: headerData, error: headerErr } = await supabase.from('stock_transfer').insert({
-      from_branch_id: fromBranch,
-      to_branch_id: toBranch,
-      note: 'Created from backoffice UI',
-      created_at: new Date().toISOString()
-    }).select().limit(1).single();
-    if (headerErr) throw headerErr;
-    const transferId = headerData.id;
+    // create header (use text branch names or ids depending on your schema)
+    const headerPayload = {
+      from_branch: fromBranch,
+      to_branch: toBranch,
+      date: new Date().toISOString()
+    };
+    const headerRes = await createStockTransferHeader(headerPayload);
+    if (!headerRes || !headerRes.id) throw new Error('Transfer header insert failed');
 
-    const itemsToInsert = items.map(i => ({
-      stock_transfer_id: transferId,
-      ingredient_id: i.ingredient_id,
-      quantity: i.quantity,
-      unit: i.unit
-    }));
-    const { error: itemsErr } = await supabase.from('stock_transfer_item').insert(itemsToInsert);
-    if (itemsErr) throw itemsErr;
+    const transferId = headerRes.id;
+    await insertStockTransferItems(transferId, items);
 
     stockTransferMessage.textContent = 'Stock Transfer recorded successfully.';
     stockTransferMessage.classList.add('success');
+
     stockTransferForm.reset();
     transferItemsContainer.innerHTML = '';
     createItemRow(transferItemsContainer);
+
     await loadDashboardAndReports();
   } catch (err) {
     console.error('stock transfer error', err);
-    stockTransferMessage.textContent = 'Error saving stock transfer: ' + (err.message || JSON.stringify(err));
+    const em = (err && (err.message || JSON.stringify(err))) || 'Unknown error';
+    if ((err && err.code === '42501') || (em.toLowerCase().includes('permission') || em.toLowerCase().includes('forbidden'))) {
+      stockTransferMessage.textContent = 'Permission denied. Check RLS policies for stock_transfer / stock_transfer_item.';
+    } else {
+      stockTransferMessage.textContent = 'Error saving stock transfer: ' + em;
+    }
     stockTransferMessage.classList.add('error');
   }
 });
