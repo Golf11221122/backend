@@ -587,14 +587,6 @@ async function createStockTransferHeader(payload) {
   }
 }
 
-/**
- * Insert items for a transfer
- * REAL columns:
- * - stock_transfer_id (uuid)
- * - ingredient_id (uuid)
- * - quantity (numeric)
- * - unit (text)
- */
 async function insertStockTransferItems(transferId, items) {
   const payload = items.map(i => ({
     stock_transfer_id: transferId,
@@ -603,20 +595,16 @@ async function insertStockTransferItems(transferId, items) {
     unit: i.unit
   }));
 
-  const { data, error } = await supabase
-    .from('stock_transfer_item')
+  const { error } = await supabase
+    .from("stock_transfer_item")
     .insert(payload);
 
   if (error) {
-    console.error('stock_transfer_item insert error', error);
+    console.error("stock_transfer_item insert error", error);
     throw error;
   }
-
-  return data;
 }
 
-
-/* Submit handler */
 stockTransferForm?.addEventListener("submit", async (ev) => {
   ev.preventDefault();
   stockTransferMessage.textContent = "";
@@ -661,7 +649,6 @@ stockTransferForm?.addEventListener("submit", async (ev) => {
     };
 
     const header = await createStockTransferHeader(headerPayload);
-
     await insertStockTransferItems(header.id, items);
 
     stockTransferMessage.textContent = "Stock Transfer recorded successfully.";
@@ -678,9 +665,6 @@ stockTransferForm?.addEventListener("submit", async (ev) => {
     stockTransferMessage.classList.add("error");
   }
 });
-
-
-
 
 
 /* ===========================
@@ -809,6 +793,7 @@ function parseCurrency(s) {
   await loadDashboardAndReports();
   setupRealtime();
 })();
+
 
 
 
