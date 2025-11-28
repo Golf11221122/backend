@@ -5,13 +5,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>POS Backoffice - Dashboard</title>
-    <!-- โหลด styles จากไฟล์ local -->
     <link rel="stylesheet" href="./styles.css" />
 </head>
 
 <body>
     <div id="app">
-        <!-- Navbar -->
         <nav class="navbar">
             <div class="brand">POS Backoffice</div>
             <ul class="nav-links">
@@ -22,7 +20,6 @@
             </ul>
         </nav>
 
-        <!-- Content -->
         <main class="container">
             <!-- Dashboard -->
             <section id="dashboard" class="page">
@@ -66,9 +63,7 @@
                         </label>
                     </div>
 
-                    <div id="stock-in-items">
-                        <!-- dynamic item rows -->
-                    </div>
+                    <div id="stock-in-items"></div>
 
                     <div class="form-actions">
                         <button type="button" id="add-stock-item" class="btn">Add Item</button>
@@ -93,9 +88,7 @@
                         </label>
                     </div>
 
-                    <div id="transfer-items">
-                        <!-- dynamic item rows -->
-                    </div>
+                    <div id="transfer-items"></div>
 
                     <div class="form-actions">
                         <button type="button" id="add-transfer-item" class="btn">Add Item</button>
@@ -146,8 +139,8 @@
             </section>
         </main>
     </div>
-    <!-- เพิ่มส่วนนี้ก่อนปิด </body> (ไว้ในไฟล์ index.html) -->
-    <!-- Modal: Add Supplier -->
+
+    <!-- Modal Add Supplier -->
     <div id="modal-add-supplier" class="modal hidden" aria-hidden="true">
         <div class="modal-backdrop" id="modal-backdrop"></div>
         <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-add-supplier-title">
@@ -165,10 +158,12 @@
             </form>
         </div>
     </div>
-    <!-- สิ้นสุด modal -->
 
-    <!-- โหลดเป็น ES module (สำคัญ: ต้องเป็น 'type="module"') -->
+    <!-- โหลด Supabase (สำคัญมาก) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <!-- โหลด app.js -->
     <script type="module" src="./app.js"></script>
-</body>
 
+</body>
 </html>
