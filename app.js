@@ -560,17 +560,30 @@ stockInForm?.addEventListener('submit', async (ev) => {
 });
 
 /* ===========================
-   Stock Transfer helpers & submit
+   Stock Transfer helpers & submit (FIXED VERSION)
    =========================== */
 
 /**
  * Create a stock_transfer header row.
- * Uses column names: from_branch (text), to_branch (text), date (timestamp)
- * Adjust as needed if your table uses different column names.
  */
 async function createStockTransferHeader(payload) {
   try {
-    const res = await supabase.from('stock_transfer').insert(payload).select().limit(1).single();
+    const user = supabase.auth.getUser ? (await supabase.auth.getUser()).data.user : null;
+    const userId = user?.id || null;
+
+    // inject created_by for RLS
+    const finalPayload = {
+      ...payload,
+      created_by: userId
+    };
+
+    const res = await supabase
+      .from('stock_transfer')
+      .insert(finalPayload)
+      .select()
+      .limit(1)
+      .single();
+
     if (res.error) throw res.error;
     return res.data;
   } catch (err) {
@@ -581,32 +594,36 @@ async function createStockTransferHeader(payload) {
 
 /**
  * Insert items for a given transfer.
- * Assumes stock_transfer_item has transfer_id (or stock_transfer_id) referencing stock_transfer.id
- * and fields: ingredient_id, qty (or quantity), unit (if you have)
+ * Ensures created_by exists for RLS.
  */
 async function insertStockTransferItems(transferId, items) {
-  // try to guess the column name: some schemas use transfer_id, some use stock_transfer_id
-  const payloadByTransferId = items.map(i => ({ transfer_id: transferId, ingredient_id: i.ingredient_id, qty: i.quantity }));
-  const payloadByStockTransferId = items.map(i => ({ stock_transfer_id: transferId, ingredient_id: i.ingredient_id, qty: i.quantity }));
+  const user = supabase.auth.getUser ? (await supabase.auth.getUser()).data.user : null;
+  const userId = user?.id || null;
 
-  // Try insert with transfer_id first, if that fails try stock_transfer_id
-  let r = await supabase.from('stock_transfer_item').insert(payloadByTransferId);
-  if (!r.error) return r.data;
-  console.warn('stock_transfer_item insert with transfer_id failed, trying stock_transfer_id', r.error);
+  // Standard column name (use ONLY ONE to avoid RLS rejects)
+  const payload = items.map(i => ({
+    stock_transfer_id: transferId,
+    ingredient_id: i.ingredient_id,
+    qty: i.quantity,
+    unit: i.unit,
+    created_by: userId
+  }));
 
-  r = await supabase.from('stock_transfer_item').insert(payloadByStockTransferId);
-  if (!r.error) return r.data;
+  const r = await supabase.from('stock_transfer_item').insert(payload);
+  if (r.error) throw r.error;
 
-  throw r.error || new Error('Unknown error inserting transfer items');
+  return r.data;
 }
 
 stockTransferForm?.addEventListener('submit', async (ev) => {
   ev.preventDefault();
   if (!stockTransferMessage) return;
-  stockTransferMessage.textContent = ''; stockTransferMessage.className = 'message';
+  stockTransferMessage.textContent = ''; 
+  stockTransferMessage.className = 'message';
 
   const fromBranch = fromBranchSelect?.value;
   const toBranch = toBranchSelect?.value;
+
   if (!fromBranch || !toBranch || fromBranch === toBranch) {
     stockTransferMessage.textContent = 'Please select different From and To branches.';
     stockTransferMessage.classList.add('error');
@@ -615,10 +632,12 @@ stockTransferForm?.addEventListener('submit', async (ev) => {
 
   const rows = Array.from(transferItemsContainer.querySelectorAll('.form-row'));
   const items = [];
+
   for (const row of rows) {
     const ing = row.querySelector('.ingredient-select').value;
     const qty = parseFloat(row.querySelector('.qty-input').value);
     const unit = row.querySelector('.unit-input').value.trim();
+
     if (!ing || !qty || qty <= 0 || !unit) {
       stockTransferMessage.textContent = 'Please fill all item fields with valid values.';
       stockTransferMessage.classList.add('error');
@@ -628,16 +647,19 @@ stockTransferForm?.addEventListener('submit', async (ev) => {
   }
 
   try {
-    // create header (use text branch names or ids depending on your schema)
+    // Header payload
     const headerPayload = {
       from_branch: fromBranch,
       to_branch: toBranch,
       date: new Date().toISOString()
     };
+
     const headerRes = await createStockTransferHeader(headerPayload);
-    if (!headerRes || !headerRes.id) throw new Error('Transfer header insert failed');
+    if (!headerRes?.id) throw new Error('Transfer header insert failed');
 
     const transferId = headerRes.id;
+
+    // Insert items
     await insertStockTransferItems(transferId, items);
 
     stockTransferMessage.textContent = 'Stock Transfer recorded successfully.';
@@ -648,17 +670,28 @@ stockTransferForm?.addEventListener('submit', async (ev) => {
     createItemRow(transferItemsContainer);
 
     await loadDashboardAndReports();
+
   } catch (err) {
     console.error('stock transfer error', err);
-    const em = (err && (err.message || JSON.stringify(err))) || 'Unknown error';
-    if ((err && err.code === '42501') || (em.toLowerCase().includes('permission') || em.toLowerCase().includes('forbidden'))) {
-      stockTransferMessage.textContent = 'Permission denied. Check RLS policies for stock_transfer / stock_transfer_item.';
+
+    const em = err?.message || JSON.stringify(err);
+
+    if (
+      err?.code === '42501' ||
+      em.toLowerCase().includes('permission') ||
+      em.toLowerCase().includes('rls') ||
+      em.toLowerCase().includes('forbidden')
+    ) {
+      stockTransferMessage.textContent =
+        'Permission denied (RLS). Your JS now sends created_by automatically. If error persists, check RLS: allow insert where created_by = auth.uid().';
     } else {
       stockTransferMessage.textContent = 'Error saving stock transfer: ' + em;
     }
+
     stockTransferMessage.classList.add('error');
   }
 });
+
 
 /* ===========================
    Add Supplier modal logic
@@ -786,3 +819,4 @@ function parseCurrency(s) {
   await loadDashboardAndReports();
   setupRealtime();
 })();
+
