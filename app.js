@@ -412,8 +412,74 @@ function formatCurrency(x) {
 }
 
 /* ===========================
-   Stock In submit handler
+   Stock In submit handler (robust)
    =========================== */
+
+/**
+ * Attempts to insert a single row into stock_in.
+ * If the error indicates a missing column, remove that column from payload and retry.
+ * payload is an object we will mutate locally (make a shallow copy before calling)
+ */
+async function insertStockInHeaderWithRetries(payload) {
+  // make a shallow copy so caller's object is preserved
+  let attemptPayload = { ...payload };
+  const triedColumnsRemoved = new Set();
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      const res = await supabase.from('stock_in').insert(attemptPayload).select().limit(1).single();
+      if (res.error) throw res.error;
+      return res.data; // success
+    } catch (err) {
+      const msg = (err && (err.message || err.error_description || String(err))).toString().toLowerCase();
+      console.warn('stock_in insert attempt error (attempt ' + attempt + '):', msg);
+
+      // look for "could not find the 'xyz' column" pattern
+      const m = msg.match(/could not find the '([^']+)' column/);
+      if (m && m[1]) {
+        const col = m[1];
+        if (!triedColumnsRemoved.has(col)) {
+          triedColumnsRemoved.add(col);
+          // remove the problematic column from payload and retry
+          if (col in attemptPayload) {
+            delete attemptPayload[col];
+            console.info(`Removed column "${col}" from payload and retrying insert.`);
+            continue;
+          } else {
+            // if column not in payload, cannot fix by removal
+            throw err;
+          }
+        } else {
+          // already removed once, give up
+          throw err;
+        }
+      }
+
+      // look for schema cache / column not found generic messages
+      if (msg.includes('schema cache') || msg.includes('column') && msg.includes('not found')) {
+        // try removing common fields one-by-one that our code sends, if present
+        const commonFields = ['note', 'branch_id', 'supplier_id', 'supplier', 'invoice_number', 'invoice_numb', 'date_receive'];
+        let removed = false;
+        for (const f of commonFields) {
+          if (!triedColumnsRemoved.has(f) && (f in attemptPayload)) {
+            triedColumnsRemoved.add(f);
+            delete attemptPayload[f];
+            console.info(`Removed suspected column "${f}" from payload and retrying.`);
+            removed = true;
+            break;
+          }
+        }
+        if (removed) continue;
+      }
+
+      // If error is something else, rethrow
+      throw err;
+    }
+  }
+
+  throw new Error('Failed to insert stock_in header after retries');
+}
+
 stockInForm?.addEventListener('submit', async (ev) => {
   ev.preventDefault();
   if (!stockInMessage) return;
@@ -438,31 +504,33 @@ stockInForm?.addEventListener('submit', async (ev) => {
       stockInMessage.classList.add('error');
       return;
     }
-    items.push({ ingredient_id: ing, quantity: qty, unit });
+    items.push({ ingredient_id: ing, quantity: qty, unit: unit });
   }
 
-  try {
-    // Insert header
-    const { data: headerData, error: headerErr } = await supabase.from('stock_in').insert({
-      supplier_id: supplierId,
-      branch_id: branchId,
-      note: 'Created from backoffice UI',
-      created_at: new Date().toISOString()
-    }).select().limit(1).single();
+  // Prepare header payload (include note by default)
+  const headerPayload = {
+    supplier_id: supplierId,
+    branch_id: branchId,
+    note: 'Created from backoffice UI',
+    created_at: new Date().toISOString()
+  };
 
-    if (headerErr) {
-      console.error('stock_in header error', headerErr);
-      throw headerErr;
+  try {
+    // Try insert header with retries that strip unknown columns if necessary
+    const headerData = await insertStockInHeaderWithRetries(headerPayload);
+    if (!headerData || !headerData.id) {
+      throw new Error('Header insert did not return id');
     }
     const stockInId = headerData.id;
 
-    // Insert items
+    // Insert items associated with header
     const itemsToInsert = items.map(i => ({
       stock_in_id: stockInId,
       ingredient_id: i.ingredient_id,
       quantity: i.quantity,
       unit: i.unit
     }));
+
     const { error: itemsErr } = await supabase.from('stock_in_item').insert(itemsToInsert);
     if (itemsErr) {
       console.error('stock_in_item error', itemsErr);
@@ -480,11 +548,12 @@ stockInForm?.addEventListener('submit', async (ev) => {
     await loadDashboardAndReports();
   } catch (err) {
     console.error('stock in error', err);
-    // Show more helpful message when permission denied
-    if ((err && err.code === '42501') || (err && err.message && err.message.toLowerCase().includes('permission'))) {
+    // Friendly error messages
+    const em = (err && (err.message || JSON.stringify(err))) || 'Unknown error';
+    if ((err && err.code === '42501') || (em.toLowerCase().includes('permission') || em.toLowerCase().includes('forbidden'))) {
       stockInMessage.textContent = 'Permission denied. Check RLS policies for stock_in / stock_in_item.';
     } else {
-      stockInMessage.textContent = 'Error saving stock in: ' + (err.message || JSON.stringify(err));
+      stockInMessage.textContent = 'Error saving stock in: ' + em;
     }
     stockInMessage.classList.add('error');
   }
