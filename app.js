@@ -188,10 +188,10 @@ async function loadReferences() {
       supplierRes,
       menusRes
     ] = await Promise.all([
-      supabase.from('ingredients').select('id,name,unit,low_stock_threshold').order('name'),
-      supabase.from('branches').select('id,name').order('name'),
-      supabase.from('suppliers').select('id,name').order('name'),
-      supabase.from('menus').select('id,name,price').order('name')
+      supabase.from('ingredients').select('id,name,unit,low_stock_threshold').order('name', { ascending: true }),
+      supabase.from('branches').select('id,name').order('name', { ascending: true }),
+      supabase.from('suppliers').select('id,name').order('name', { ascending: true }),
+      supabase.from('menus').select('id,name,price').order('name', { ascending: true })
     ]);
 
     if (ingRes.error) console.warn('ingredients load error', ingRes.error);
@@ -211,6 +211,7 @@ async function loadReferences() {
 
     // update ingredient selects already present in dynamic rows
     document.querySelectorAll('.ingredient-select').forEach(sel => {
+      // remove options except the placeholder (index 0)
       while (sel.options.length > 1) sel.remove(1);
       ingredients.forEach(ing => {
         const o = document.createElement('option');
@@ -229,58 +230,61 @@ async function loadReferences() {
    =========================== */
 async function loadDashboardAndReports() {
   try {
-    // Total sales
-    const { data: receiptsSum, error: rerr } = await supabase.from('receipts').select('sum(total)::numeric as total_sales');
-    if (!rerr && receiptsSum && receiptsSum.length) {
-      totalSalesEl.textContent = formatCurrency(receiptsSum[0].total_sales || 0);
+    // Total sales - fetch receipts and sum client-side to avoid SQL dialect differences
+    const { data: receipts, error: receiptsErr } = await supabase.from('receipts').select('id,total,branch_id,created_at');
+    if (receiptsErr) {
+      console.warn('receipts load error', receiptsErr);
+      totalSalesEl && (totalSalesEl.textContent = formatCurrency(0));
     } else {
-      totalSalesEl.textContent = formatCurrency(0);
-      if (rerr) console.warn('total sales query error', rerr);
+      const sum = (receipts || []).reduce((s, r) => s + (Number(r.total) || 0), 0);
+      totalSalesEl && (totalSalesEl.textContent = formatCurrency(sum));
     }
 
     // Reports (aggregate)
     await loadReportData();
 
-    // Stock alerts (no low_stock_threshold in DB)
-const { data: stockBal, error: sbErr } = await supabase
-  .from('ingredients_stock_balance')
-  .select('ingredient_id,branch_id,current_stock,ingredients(name),branches(name)')
-  .order('current_stock', { ascending: true });
+    // Stock alerts (try to fetch stock balance view/table)
+    const { data: stockBal, error: sbErr } = await supabase
+      .from('ingredients_stock_balance')
+      .select('ingredient_id,branch_id,current_stock,ingredients(name),branches(name)')
+      .order('current_stock', { ascending: true });
 
-if (sbErr) {
-  console.warn('stock balance fetch error', sbErr);
-  stockAlertsEl.innerHTML = '<li>Error loading stock</li>';
-} else {
-  // Since low_stock_threshold does not exist, simply show all items with stock
-  if (!stockBal || stockBal.length === 0) {
-    stockAlertsEl.innerHTML = '<li>No stock data</li>';
-  } else {
-    stockAlertsEl.innerHTML = '';
-    stockBal.forEach(a => {
-      const li = document.createElement('li');
-      li.textContent = `${a.ingredients?.name || 'Unknown'} @ ${a.branches?.name || 'Unknown'}: ${a.current_stock}`;
-      stockAlertsEl.appendChild(li);
-    });
-  }
-}
-
-    // Sales by branch
-    const { data: branchSales, error: bsErr } = await supabase
-      .from('receipts')
-      .select('branch_id, sum(total)::numeric as total')
-      .group('branch_id');
-    if (bsErr) {
-      console.warn('branch sales error', bsErr);
-      branchSalesEl.innerHTML = '<li>Unable to load</li>';
+    if (sbErr) {
+      console.warn('stock balance fetch error', sbErr);
+      if (stockAlertsEl) stockAlertsEl.innerHTML = '<li>Error loading stock</li>';
     } else {
-      branchSalesEl.innerHTML = '';
-      (branchSales || []).forEach(b => {
-        const branch = branches.find(x => x.id === b.branch_id);
-        const name = branch ? branch.name : b.branch_id;
-        const li = document.createElement('li');
-        li.textContent = `${name}: ${formatCurrency(b.total || 0)}`;
-        branchSalesEl.appendChild(li);
+      if (!stockBal || stockBal.length === 0) {
+        if (stockAlertsEl) stockAlertsEl.innerHTML = '<li>No stock data</li>';
+      } else {
+        if (stockAlertsEl) {
+          stockAlertsEl.innerHTML = '';
+          stockBal.forEach(a => {
+            const li = document.createElement('li');
+            li.textContent = `${a.ingredients?.name || 'Unknown'} @ ${a.branches?.name || 'Unknown'}: ${a.current_stock}`;
+            stockAlertsEl.appendChild(li);
+          });
+        }
+      }
+    }
+
+    // Sales by branch - aggregate client-side (avoid group() usage)
+    if (Array.isArray(receipts)) {
+      const map = new Map();
+      receipts.forEach(r => {
+        const bid = r.branch_id || 'unknown';
+        const curr = map.get(bid) || 0;
+        map.set(bid, curr + (Number(r.total) || 0));
       });
+      if (branchSalesEl) {
+        branchSalesEl.innerHTML = '';
+        for (const [branchId, total] of map.entries()) {
+          const branch = branches.find(x => x.id === branchId);
+          const name = branch ? branch.name : branchId;
+          const li = document.createElement('li');
+          li.textContent = `${name}: ${formatCurrency(total || 0)}`;
+          branchSalesEl.appendChild(li);
+        }
+      }
     }
   } catch (err) {
     console.error('loadDashboardAndReports unexpected', err);
@@ -289,8 +293,8 @@ if (sbErr) {
 
 async function loadReportData() {
   try {
-    const fromDate = reportsFrom?.value ? `${reportsFrom.value}T00:00:00Z` : null;
-    const toDate = reportsTo?.value ? `${reportsTo.value}T23:59:59Z` : null;
+    const fromDate = reportsFrom?.value ? new Date(reportsFrom.value + 'T00:00:00') : null;
+    const toDate = reportsTo?.value ? new Date(reportsTo.value + 'T23:59:59') : null;
 
     const { data: itemsData, error: itemsErr } = await supabase
       .from('receipt_items')
@@ -306,8 +310,8 @@ async function loadReportData() {
     const filtered = (itemsData || []).filter(row => {
       const created = row.receipts && row.receipts.created_at ? new Date(row.receipts.created_at) : null;
       if (!created) return true;
-      if (fromDate && created < new Date(fromDate)) return false;
-      if (toDate && created > new Date(toDate)) return false;
+      if (fromDate && created < fromDate) return false;
+      if (toDate && created > toDate) return false;
       return true;
     });
 
@@ -324,7 +328,8 @@ async function loadReportData() {
     for (const [menu_id, agg] of map.entries()) {
       const menu = menus.find(m => m.id === menu_id);
       rows.push({
-        menu_name: menu ? menu.name : menu_id,
+        menu_id,
+        menu_name: menu ? menu.name : String(menu_id),
         quantity: agg.quantity,
         revenue: agg.revenue
       });
@@ -453,7 +458,7 @@ stockInForm?.addEventListener('submit', async (ev) => {
   } catch (err) {
     console.error('stock in error', err);
     // Show more helpful message when permission denied
-    if (err && err.code === '42501' || (err && err.message && err.message.toLowerCase().includes('permission'))) {
+    if ((err && err.code === '42501') || (err && err.message && err.message.toLowerCase().includes('permission'))) {
       stockInMessage.textContent = 'Permission denied. Check RLS policies for stock_in / stock_in_item.';
     } else {
       stockInMessage.textContent = 'Error saving stock in: ' + (err.message || JSON.stringify(err));
@@ -649,5 +654,4 @@ function parseCurrency(s) {
   await loadReferences();
   await loadDashboardAndReports();
   setupRealtime();
-
 })();
