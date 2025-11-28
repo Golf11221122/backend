@@ -244,23 +244,46 @@ async function loadDashboardAndReports() {
     await loadReportData();
 
     // Stock alerts (try to fetch stock balance view/table)
-    const { data: stockBal, error: sbErr } = await supabase
+    // NOTE: cannot select related objects if no foreign key relationships exist.
+    // Fetch base stock balance, then fetch ingredient/branch names separately and join client-side.
+    const { data: stockBalRaw, error: sbErr } = await supabase
       .from('ingredients_stock_balance')
-      .select('ingredient_id,branch_id,current_stock,ingredients(name),branches(name)')
+      .select('*')
       .order('current_stock', { ascending: true });
 
     if (sbErr) {
       console.warn('stock balance fetch error', sbErr);
       if (stockAlertsEl) stockAlertsEl.innerHTML = '<li>Error loading stock</li>';
     } else {
-      if (!stockBal || stockBal.length === 0) {
+      // ensure we have ingredient and branch name caches (load if not present)
+      if (!ingredients || ingredients.length === 0) {
+        const { data: ingFetch } = await supabase.from('ingredients').select('id,name');
+        ingredients = ingFetch || [];
+      }
+      if (!branches || branches.length === 0) {
+        const { data: branchFetch } = await supabase.from('branches').select('id,name');
+        branches = branchFetch || [];
+      }
+
+      if (!stockBalRaw || stockBalRaw.length === 0) {
         if (stockAlertsEl) stockAlertsEl.innerHTML = '<li>No stock data</li>';
       } else {
+        // manual join to attach names
+        const stockData = (stockBalRaw || []).map(row => {
+          const ing = ingredients.find(i => String(i.id) === String(row.ingredient_id));
+          const br = branches.find(b => String(b.id) === String(row.branch_id));
+          return {
+            ...row,
+            ingredient_name: ing ? ing.name : (row.ingredient_name || ''),
+            branch_name: br ? br.name : (row.branch_name || '')
+          };
+        });
+
         if (stockAlertsEl) {
           stockAlertsEl.innerHTML = '';
-          stockBal.forEach(a => {
+          stockData.forEach(a => {
             const li = document.createElement('li');
-            li.textContent = `${a.ingredients?.name || 'Unknown'} @ ${a.branches?.name || 'Unknown'}: ${a.current_stock}`;
+            li.textContent = `${a.ingredient_name || 'Unknown'} @ ${a.branch_name || 'Unknown'}: ${a.current_stock}`;
             stockAlertsEl.appendChild(li);
           });
         }
@@ -278,7 +301,7 @@ async function loadDashboardAndReports() {
       if (branchSalesEl) {
         branchSalesEl.innerHTML = '';
         for (const [branchId, total] of map.entries()) {
-          const branch = branches.find(x => x.id === branchId);
+          const branch = branches.find(x => String(x.id) === String(branchId));
           const name = branch ? branch.name : branchId;
           const li = document.createElement('li');
           li.textContent = `${name}: ${formatCurrency(total || 0)}`;
