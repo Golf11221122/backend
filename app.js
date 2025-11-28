@@ -241,28 +241,28 @@ async function loadDashboardAndReports() {
     // Reports (aggregate)
     await loadReportData();
 
-    // Stock alerts
-    const { data: stockBal, error: sbErr } = await supabase
-      .from('ingredients_stock_balance')
-      .select('ingredient_id,branch_id,current_stock,ingredients(name,low_stock_threshold),branches(name)')
-      .order('current_stock', { ascending: true });
+    // Stock alerts (no low_stock_threshold in DB)
+const { data: stockBal, error: sbErr } = await supabase
+  .from('ingredients_stock_balance')
+  .select('ingredient_id,branch_id,current_stock,ingredients(name),branches(name)')
+  .order('current_stock', { ascending: true });
 
-    if (sbErr) {
-      console.warn('stock balance fetch error', sbErr);
-      stockAlertsEl.innerHTML = '<li>Error loading stock</li>';
-    } else {
-      const alerts = (stockBal || []).filter(r => r.ingredients && r.ingredients.low_stock_threshold !== null && Number(r.current_stock) <= Number(r.ingredients.low_stock_threshold));
-      if (alerts.length === 0) {
-        stockAlertsEl.innerHTML = '<li>No low stock</li>';
-      } else {
-        stockAlertsEl.innerHTML = '';
-        alerts.forEach(a => {
-          const li = document.createElement('li');
-          li.textContent = `${a.ingredients.name} @ ${a.branches.name}: ${a.current_stock} (threshold ${a.ingredients.low_stock_threshold})`;
-          stockAlertsEl.appendChild(li);
-        });
-      }
-    }
+if (sbErr) {
+  console.warn('stock balance fetch error', sbErr);
+  stockAlertsEl.innerHTML = '<li>Error loading stock</li>';
+} else {
+  // Since low_stock_threshold does not exist, simply show all items with stock
+  if (!stockBal || stockBal.length === 0) {
+    stockAlertsEl.innerHTML = '<li>No stock data</li>';
+  } else {
+    stockAlertsEl.innerHTML = '';
+    stockBal.forEach(a => {
+      const li = document.createElement('li');
+      li.textContent = `${a.ingredients?.name || 'Unknown'} @ ${a.branches?.name || 'Unknown'}: ${a.current_stock}`;
+      stockAlertsEl.appendChild(li);
+    });
+  }
+}
 
     // Sales by branch
     const { data: branchSales, error: bsErr } = await supabase
@@ -649,4 +649,5 @@ function parseCurrency(s) {
   await loadReferences();
   await loadDashboardAndReports();
   setupRealtime();
+
 })();
