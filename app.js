@@ -603,11 +603,18 @@ async function insertStockTransferItems(transferId, items) {
     unit: i.unit
   }));
 
-  const res = await supabase.from("stock_transfer_item").insert(payload);
+  const { data, error } = await supabase
+    .from('stock_transfer_item')
+    .insert(payload);
 
-  if (res.error) throw res.error;
-  return res.data;
+  if (error) {
+    console.error('stock_transfer_item insert error', error);
+    throw error;
+  }
+
+  return data;
 }
+
 
 /* Submit handler */
 stockTransferForm?.addEventListener("submit", async (ev) => {
@@ -802,6 +809,7 @@ function parseCurrency(s) {
   await loadDashboardAndReports();
   setupRealtime();
 })();
+
 
 
 
