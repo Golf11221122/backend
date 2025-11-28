@@ -560,11 +560,16 @@ stockInForm?.addEventListener('submit', async (ev) => {
 });
 
 /* ===========================
-   Stock Transfer helpers & submit (FIXED)
+   Stock Transfer helpers & submit  (FIXED)
    =========================== */
 
 /**
- * Create stock_transfer header row.
+ * Create a stock_transfer header row.
+ * Uses the REAL columns:
+ * - from_branch_id (uuid)
+ * - to_branch_id (uuid)
+ * - date (timestamp)
+ * - note (optional)
  */
 async function createStockTransferHeader(payload) {
   try {
@@ -572,7 +577,6 @@ async function createStockTransferHeader(payload) {
       .from("stock_transfer")
       .insert(payload)
       .select()
-      .limit(1)
       .single();
 
     if (res.error) throw res.error;
@@ -584,14 +588,19 @@ async function createStockTransferHeader(payload) {
 }
 
 /**
- * Insert items into stock_transfer_item
+ * Insert items for a transfer
+ * REAL columns:
+ * - stock_transfer_id (uuid)
+ * - ingredient_id (uuid)
+ * - quantity (numeric)
+ * - unit (text)
  */
 async function insertStockTransferItems(transferId, items) {
   const payload = items.map(i => ({
-    stock_transfer_id: transferId,     // FK correct
+    stock_transfer_id: transferId,
     ingredient_id: i.ingredient_id,
-    quantity: i.quantity,              // MUST MATCH TABLE
-    unit: i.unit                       // MUST MATCH TABLE
+    quantity: i.quantity,
+    unit: i.unit
   }));
 
   const res = await supabase.from("stock_transfer_item").insert(payload);
@@ -600,9 +609,9 @@ async function insertStockTransferItems(transferId, items) {
   return res.data;
 }
 
+/* Submit handler */
 stockTransferForm?.addEventListener("submit", async (ev) => {
   ev.preventDefault();
-
   stockTransferMessage.textContent = "";
   stockTransferMessage.className = "message";
 
@@ -623,9 +632,8 @@ stockTransferForm?.addEventListener("submit", async (ev) => {
     const qty = parseFloat(row.querySelector(".qty-input").value);
     const unit = row.querySelector(".unit-input").value.trim();
 
-    if (!ing || !qty || qty <= 0 || !unit) {
-      stockTransferMessage.textContent =
-        "Please fill all item fields with valid values.";
+    if (!ing || qty <= 0 || !unit) {
+      stockTransferMessage.textContent = "Please fill all item fields correctly.";
       stockTransferMessage.classList.add("error");
       return;
     }
@@ -633,7 +641,7 @@ stockTransferForm?.addEventListener("submit", async (ev) => {
     items.push({
       ingredient_id: ing,
       quantity: qty,
-      unit: unit
+      unit
     });
   }
 
@@ -641,15 +649,15 @@ stockTransferForm?.addEventListener("submit", async (ev) => {
     const headerPayload = {
       from_branch_id: fromBranch,
       to_branch_id: toBranch,
-      date: new Date().toISOString()
+      date: new Date().toISOString(),
+      note: "Created from UI"
     };
 
     const header = await createStockTransferHeader(headerPayload);
 
     await insertStockTransferItems(header.id, items);
 
-    stockTransferMessage.textContent =
-      "Stock Transfer recorded successfully.";
+    stockTransferMessage.textContent = "Stock Transfer recorded successfully.";
     stockTransferMessage.classList.add("success");
 
     stockTransferForm.reset();
@@ -659,12 +667,11 @@ stockTransferForm?.addEventListener("submit", async (ev) => {
     await loadDashboardAndReports();
   } catch (err) {
     console.error("stock transfer error", err);
-    stockTransferMessage.textContent =
-      "Error saving stock transfer: " +
-      (err.message || JSON.stringify(err));
+    stockTransferMessage.textContent = "Error saving stock transfer: " + err.message;
     stockTransferMessage.classList.add("error");
   }
 });
+
 
 
 
@@ -795,6 +802,7 @@ function parseCurrency(s) {
   await loadDashboardAndReports();
   setupRealtime();
 })();
+
 
 
 
