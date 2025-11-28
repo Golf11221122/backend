@@ -564,8 +564,7 @@ stockInForm?.addEventListener('submit', async (ev) => {
    =========================== */
 
 /**
- * Create a stock_transfer header row.
- * Uses correct column names: from_branch_id , to_branch_id , date
+ * Create stock_transfer header row.
  */
 async function createStockTransferHeader(payload) {
   try {
@@ -585,26 +584,25 @@ async function createStockTransferHeader(payload) {
 }
 
 /**
- * Insert items for transfer
+ * Insert items into stock_transfer_item
  */
 async function insertStockTransferItems(transferId, items) {
-  const payload = items.map((i) => ({
-    stock_transfer_id: transferId,
+  const payload = items.map(i => ({
+    stock_transfer_id: transferId,     // FK correct
     ingredient_id: i.ingredient_id,
-    quantity: i.quantity,
-    unit: i.unit
+    quantity: i.quantity,              // MUST MATCH TABLE
+    unit: i.unit                       // MUST MATCH TABLE
   }));
 
   const res = await supabase.from("stock_transfer_item").insert(payload);
+
   if (res.error) throw res.error;
   return res.data;
 }
 
-/**
- * Submit stock transfer
- */
 stockTransferForm?.addEventListener("submit", async (ev) => {
   ev.preventDefault();
+
   stockTransferMessage.textContent = "";
   stockTransferMessage.className = "message";
 
@@ -612,18 +610,14 @@ stockTransferForm?.addEventListener("submit", async (ev) => {
   const toBranch = toBranchSelect?.value;
 
   if (!fromBranch || !toBranch || fromBranch === toBranch) {
-    stockTransferMessage.textContent =
-      "Please select different From and To branches.";
+    stockTransferMessage.textContent = "Please select different From and To branches.";
     stockTransferMessage.classList.add("error");
     return;
   }
 
-  // collect items
-  const rows = Array.from(
-    transferItemsContainer.querySelectorAll(".form-row")
-  );
-
+  const rows = Array.from(transferItemsContainer.querySelectorAll(".form-row"));
   const items = [];
+
   for (const row of rows) {
     const ing = row.querySelector(".ingredient-select").value;
     const qty = parseFloat(row.querySelector(".qty-input").value);
@@ -644,7 +638,6 @@ stockTransferForm?.addEventListener("submit", async (ev) => {
   }
 
   try {
-    // FIXED: correct payload
     const headerPayload = {
       from_branch_id: fromBranch,
       to_branch_id: toBranch,
@@ -652,7 +645,6 @@ stockTransferForm?.addEventListener("submit", async (ev) => {
     };
 
     const header = await createStockTransferHeader(headerPayload);
-    if (!header?.id) throw new Error("Transfer header insert failed");
 
     await insertStockTransferItems(header.id, items);
 
@@ -673,6 +665,7 @@ stockTransferForm?.addEventListener("submit", async (ev) => {
     stockTransferMessage.classList.add("error");
   }
 });
+
 
 
 
@@ -802,5 +795,6 @@ function parseCurrency(s) {
   await loadDashboardAndReports();
   setupRealtime();
 })();
+
 
 
